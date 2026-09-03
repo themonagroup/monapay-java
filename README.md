@@ -28,7 +28,7 @@ Sau khi package được publish:
 <dependency>
   <groupId>com.themona</groupId>
   <artifactId>monapay</artifactId>
-  <version>0.3.0</version>
+  <version>0.4.0</version>
 </dependency>
 ```
 
@@ -44,7 +44,19 @@ Object profile = client.me();
 Object hooks = client.webhooks().list();
 ```
 
-Body JSON dùng `Map<String,Object>`; helper `MonaPay.object(...)` giúp viết ngắn. Các resource: `keys`, `bankAccounts`, `va` (đăng ký + hai bước OTP), `qr`, `transactions`, `webhooks`, `webhookLogs`, `sandbox`, `emailConfigs`, `emailLogs`, `emailSuppressions`. POST/PUT/DELETE tự có `X-Client-Secret` khi đã cấu hình; secret vừa generate sẽ được giữ trong client nếu trước đó chưa có.
+Body JSON dùng `Map<String,Object>`; helper `MonaPay.object(...)` giúp viết ngắn. Các resource: `keys`, `paymentProfile`, `checkouts`, `bankAccounts`, `va` (đăng ký + hai bước OTP), `qr`, `transactions`, `webhooks`, `webhookLogs`, `sandbox`, `emailConfigs`, `emailLogs`, `emailSuppressions`. POST/PUT/DELETE tự có `X-Client-Secret` khi đã cấu hình; secret vừa generate sẽ được giữ trong client nếu trước đó chưa có.
+
+## Trang thanh toán (hosted checkout)
+
+```java
+Object checkout = client.checkouts().create(MonaPay.object("amount", 250000, "order_code", "DH10234", "return_url", "https://shop.vn/payment/return"));
+String url = (String) ((Map<?, ?>) checkout).get("checkout_url");
+response.sendRedirect(url);
+if ("CHECKOUT_PAID".equals(eventType))
+    fulfillOnce(eventData.get("order_code"));
+```
+
+SDK tự sinh `Idempotency-Key` cho `create` và `cancel`; truyền đối số key khi anh chị cần dùng key riêng. Nguồn sự thật để giao hàng là webhook `CHECKOUT_PAID` hoặc kết quả `get`, không phải redirect trình duyệt.
 
 ```java
 for (Object transaction : client.transactions().iterate(

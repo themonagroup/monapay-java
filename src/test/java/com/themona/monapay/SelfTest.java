@@ -40,6 +40,11 @@ public final class SelfTest {
                 check("secret".equals(request.getHeaders().get("X-Client-Secret")), "client secret header");
                 return ok("{\"id\":\"hook-1\"}");
             }
+            if (request.getUrl().endsWith("/api/v1/checkouts")) {
+                check("checkout-key".equals(request.getHeaders().get("Idempotency-Key")), "checkout idempotency header");
+                check("secret".equals(request.getHeaders().get("X-Client-Secret")), "checkout client secret header");
+                return ok("{\"checkout_url\":\"https://pay.monapay.vn/c/token\"}");
+            }
             meCalls[0]++;
             if (meCalls[0] == 1) return new MonaPay.Response(401, "{\"detail\":\"expired\"}");
             check("Bearer token-2".equals(request.getHeaders().get("Authorization")), "refreshed bearer");
@@ -49,8 +54,9 @@ public final class SelfTest {
         MonaPay client = MonaPay.clientCredentials("client-id", "secret").baseUrl("https://example.test/").transport(fake).build();
         client.webhooks().create(MonaPay.object("name", "Shop"));
         client.me();
+        client.checkouts().create(MonaPay.object("amount", 250000), "checkout-key");
         check(logins[0] == 2, "one refresh after 401");
-        check(calls.size() == 5, "expected request count");
+        check(calls.size() == 6, "expected request count");
     }
 
     private static void testIteratorSinceId() {

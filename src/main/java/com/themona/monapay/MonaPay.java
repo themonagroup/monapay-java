@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.UUID;
 
 /** Synchronous, zero-dependency MONA Pay API client for Java 11+. */
 public final class MonaPay {
@@ -96,6 +97,8 @@ public final class MonaPay {
     private final Keys keys = new Keys();
     private final VirtualAccounts va = new VirtualAccounts();
     private final BankAccounts bankAccounts = new BankAccounts();
+    private final PaymentProfile paymentProfile = new PaymentProfile();
+    private final Checkouts checkouts = new Checkouts();
     private final QR qr = new QR();
     private final Transactions transactions = new Transactions();
     private final Webhooks webhooks = new Webhooks();
@@ -122,6 +125,8 @@ public final class MonaPay {
     public Keys keys() { return keys; }
     public VirtualAccounts va() { return va; }
     public BankAccounts bankAccounts() { return bankAccounts; }
+    public PaymentProfile paymentProfile() { return paymentProfile; }
+    public Checkouts checkouts() { return checkouts; }
     public QR qr() { return qr; }
     public Transactions transactions() { return transactions; }
     public Webhooks webhooks() { return webhooks; }
@@ -145,6 +150,14 @@ public final class MonaPay {
         }
         public Object list() { return request("GET", "/api/v1/client-keys/list", null, null); }
         public Object destroy(String keyId) { return request("DELETE", "/api/v1/client-keys/destroy/" + segment(keyId), null, null); }
+        public Object reveal(String keyId, Map<String, Object> confirmation) { return request("POST", "/api/v1/client-keys/" + segment(keyId) + "/reveal", confirmation, null); }
+        public Object rotate(String keyId) {
+            Object data = request("POST", "/api/v1/client-keys/" + segment(keyId) + "/rotate", map(), null);
+            if (data instanceof Map<?, ?> && ((Map<?, ?>) data).get("client_secret") instanceof String) {
+                clientSecret = (String) ((Map<?, ?>) data).get("client_secret");
+            }
+            return data;
+        }
     }
 
     public final class VirtualAccounts {
@@ -157,6 +170,49 @@ public final class MonaPay {
 
     public final class BankAccounts {
         public Object list() { return request("GET", "/api/v1/client/bank-accounts", null, null); }
+    }
+
+    public final class PaymentProfile {
+        public Object get() { return request("GET", "/api/v1/payment-profile", null, null); }
+        public Object set(Map<String, Object> body) { return request("PUT", "/api/v1/payment-profile", body, null); }
+        public Object rotateReturnSecret() { return request("POST", "/api/v1/payment-profile/rotate-return-secret", map(), null); }
+        public Object revealReturnSecret(Map<String, Object> confirmation) { return request("POST", "/api/v1/payment-profile/reveal-return-secret", confirmation, null); }
+    }
+
+    public static final class CheckoutOptions {
+        private String status;
+        private String orderCode;
+        private String fromDate;
+        private String toDate;
+        private Integer page;
+        private Integer limit;
+        public CheckoutOptions status(String value) { status = value; return this; }
+        public CheckoutOptions orderCode(String value) { orderCode = value; return this; }
+        public CheckoutOptions fromDate(String value) { fromDate = value; return this; }
+        public CheckoutOptions toDate(String value) { toDate = value; return this; }
+        public CheckoutOptions page(int value) { page = value; return this; }
+        public CheckoutOptions limit(int value) { limit = value; return this; }
+    }
+
+    public final class Checkouts {
+        public Object create(Map<String, Object> body) { return create(body, null); }
+        public Object create(Map<String, Object> body, String idempotencyKey) {
+            return request("POST", "/api/v1/checkouts", body, null,
+                Collections.singletonMap("Idempotency-Key", idempotencyKey == null || idempotencyKey.isEmpty() ? UUID.randomUUID().toString() : idempotencyKey));
+        }
+        public Object get(String checkoutId) { return request("GET", "/api/v1/checkouts/" + segment(checkoutId), null, null); }
+        public Object list() { return list(new CheckoutOptions()); }
+        public Object list(CheckoutOptions options) {
+            CheckoutOptions actual = options == null ? new CheckoutOptions() : options;
+            return request("GET", "/api/v1/checkouts", null, map(
+                "status", actual.status, "order_code", actual.orderCode, "from_date", actual.fromDate,
+                "to_date", actual.toDate, "page", actual.page, "limit", actual.limit));
+        }
+        public Object cancel(String checkoutId) { return cancel(checkoutId, null); }
+        public Object cancel(String checkoutId, String idempotencyKey) {
+            return request("POST", "/api/v1/checkouts/" + segment(checkoutId) + "/cancel", map(), null,
+                Collections.singletonMap("Idempotency-Key", idempotencyKey == null || idempotencyKey.isEmpty() ? UUID.randomUUID().toString() : idempotencyKey));
+        }
     }
 
     public final class QR {
@@ -322,17 +378,21 @@ public final class MonaPay {
     }
 
     private Object request(String method, String path, Object body, Map<String, Object> query) {
+        return request(method, path, body, query, null);
+    }
+
+    private Object request(String method, String path, Object body, Map<String, Object> query, Map<String, String> customHeaders) {
         login();
         String usedToken = accessToken;
         try {
-            return send(method, path, body, query, usedToken, clientSecret);
+            return send(method, path, body, query, usedToken, clientSecret, customHeaders);
         } catch (MonaPayException error) {
             if (error.getStatus() != 401) throw error;
             synchronized (authLock) {
                 if (Objects.equals(accessToken, usedToken)) { accessToken = null; tokenExpiresAtMillis = 0; }
             }
             login();
-            return send(method, path, body, query, accessToken, clientSecret);
+            return send(method, path, body, query, accessToken, clientSecret, customHeaders);
         }
     }
 
@@ -355,10 +415,15 @@ public final class MonaPay {
     }
 
     private Object send(String method, String path, Object body, Map<String, Object> query, String token, String secret) {
+        return send(method, path, body, query, token, secret, null);
+    }
+
+    private Object send(String method, String path, Object body, Map<String, Object> query, String token, String secret, Map<String, String> customHeaders) {
         LinkedHashMap<String, String> headers = new LinkedHashMap<>();
         headers.put("Accept", "application/json");
         if (token != null) headers.put("Authorization", "Bearer " + token);
         if (token != null && !"GET".equals(method) && secret != null && !secret.isEmpty()) headers.put("X-Client-Secret", secret);
+        if (customHeaders != null) headers.putAll(customHeaders);
         String encodedBody = null;
         if (body != null) {
             headers.put("Content-Type", "application/json");
