@@ -31,9 +31,10 @@ public final class SelfTest {
         List<MonaPay.Request> calls = new ArrayList<>();
         MonaPay.Transport fake = request -> {
             calls.add(request);
-            if (request.getUrl().endsWith("/api/v1/client/login")) {
+            if (request.getUrl().endsWith("/api/v1/oauth/token")) {
                 logins[0]++;
-                return ok("{\"access_token\":\"token-" + logins[0] + "\"}");
+                check(request.getBody().contains("\"grant_type\":\"client_credentials\"") && request.getBody().contains("\"client_id\":\"client-id\"") && request.getBody().contains("\"client_secret\":\"secret\""), "client credentials body");
+                return ok("{\"access_token\":\"token-" + logins[0] + "\",\"expires_in\":3600}");
             }
             if (request.getUrl().endsWith("/api/v1/client-webhooks")) {
                 check("secret".equals(request.getHeaders().get("X-Client-Secret")), "client secret header");
@@ -45,7 +46,7 @@ public final class SelfTest {
             check(!request.getHeaders().containsKey("X-Client-Secret"), "GET has no secret");
             return ok("{\"username\":\"user\"}");
         };
-        MonaPay client = MonaPay.builder("user", "pass").baseUrl("https://example.test/").clientSecret("secret").transport(fake).build();
+        MonaPay client = MonaPay.clientCredentials("client-id", "secret").baseUrl("https://example.test/").transport(fake).build();
         client.webhooks().create(MonaPay.object("name", "Shop"));
         client.me();
         check(logins[0] == 2, "one refresh after 401");

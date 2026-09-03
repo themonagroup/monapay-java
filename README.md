@@ -1,6 +1,24 @@
 # MONA Pay SDK for Java
 
-SDK Java 11+ zero-dependency cho MONA Pay — cổng thanh toán và API ngân hàng của The MONA Group. SDK dùng `java.net.http.HttpClient`, tự login/cache token và login lại đúng một lần khi HTTP 401.
+SDK Java 11+ zero-dependency cho MONA Pay, cổng thanh toán và API ngân hàng của The MONA Group. SDK dùng `java.net.http.HttpClient`, tự login/cache token và login lại đúng một lần khi HTTP 401.
+
+## Xác thực cho AI agent
+
+```bash
+export MONAPAY_CLIENT_ID="client-id"
+export MONAPAY_CLIENT_SECRET="client-secret"
+export MONAPAY_BASE_URL="https://api.monapay.vn"
+```
+
+```java
+MonaPay client = MonaPay.fromEnv();
+Object profile = client.me();
+Object qr = client.qr().generate(qrBody);
+Object sandbox = client.sandbox().createTransaction(MonaPay.object("virtual_account_number", "MONA123", "amount", 10000, "description", "AI test"));
+System.out.println(profile);
+```
+
+`MonaPay.fromEnv()` ưu tiên client credentials, cache token tới gần hạn và tự lấy lại khi gặp HTTP 401. Username/password chỉ là fallback tương thích cũ, không dùng cho AI agent vì sẽ gãy khi bật 2FA.
 
 ## Maven
 
@@ -10,7 +28,7 @@ Sau khi package được publish:
 <dependency>
   <groupId>com.themona</groupId>
   <artifactId>monapay</artifactId>
-  <version>0.1.0</version>
+  <version>0.3.0</version>
 </dependency>
 ```
 
@@ -26,7 +44,7 @@ Object profile = client.me();
 Object hooks = client.webhooks().list();
 ```
 
-Body JSON dùng `Map<String,Object>`; helper `MonaPay.object(...)` giúp viết ngắn. Các resource: `keys`, `bankAccounts`, `va` (đăng ký + hai bước OTP), `qr`, `transactions`, `webhooks`, `webhookLogs`. POST/PUT/DELETE tự có `X-Client-Secret` khi đã cấu hình; secret vừa generate sẽ được giữ trong client nếu trước đó chưa có.
+Body JSON dùng `Map<String,Object>`; helper `MonaPay.object(...)` giúp viết ngắn. Các resource: `keys`, `bankAccounts`, `va` (đăng ký + hai bước OTP), `qr`, `transactions`, `webhooks`, `webhookLogs`, `sandbox`, `emailConfigs`, `emailLogs`, `emailSuppressions`. POST/PUT/DELETE tự có `X-Client-Secret` khi đã cấu hình; secret vừa generate sẽ được giữ trong client nếu trước đó chưa có.
 
 ```java
 for (Object transaction : client.transactions().iterate(

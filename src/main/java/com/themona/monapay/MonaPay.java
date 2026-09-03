@@ -52,16 +52,30 @@ public final class MonaPay {
     }
 
     public static Builder builder(String username, String password) { return new Builder(username, password); }
+    public static Builder clientCredentials(String clientId, String clientSecret) {
+        return new Builder("", "").clientId(clientId).clientSecret(clientSecret);
+    }
+    public static MonaPay fromEnv() {
+        String clientId = System.getenv("MONAPAY_CLIENT_ID");
+        String clientSecret = System.getenv("MONAPAY_CLIENT_SECRET");
+        Builder builder = clientId != null && !clientId.isEmpty() && clientSecret != null && !clientSecret.isEmpty()
+            ? clientCredentials(clientId, clientSecret)
+            : builder(System.getenv("MONAPAY_USERNAME"), System.getenv("MONAPAY_PASSWORD")).clientSecret(clientSecret);
+        String baseUrl = System.getenv("MONAPAY_BASE_URL");
+        return (baseUrl == null || baseUrl.isEmpty() ? builder : builder.baseUrl(baseUrl)).build();
+    }
 
     public static final class Builder {
         private final String username;
         private final String password;
+        private String clientId;
         private String clientSecret;
         private String baseUrl = DEFAULT_BASE_URL;
         private Duration timeout = Duration.ofSeconds(30);
         private Transport transport;
 
         private Builder(String username, String password) { this.username = username; this.password = password; }
+        private Builder clientId(String value) { clientId = value; return this; }
         public Builder clientSecret(String value) { clientSecret = value; return this; }
         public Builder baseUrl(String value) { baseUrl = value; return this; }
         public Builder timeout(Duration value) { timeout = value; return this; }
@@ -71,11 +85,13 @@ public final class MonaPay {
 
     private final String username;
     private final String password;
+    private final String clientId;
     private final String baseUrl;
     private final Transport transport;
     private final Object authLock = new Object();
     private volatile String accessToken;
     private volatile String clientSecret;
+    private volatile long tokenExpiresAtMillis;
 
     private final Keys keys = new Keys();
     private final VirtualAccounts va = new VirtualAccounts();
@@ -84,11 +100,18 @@ public final class MonaPay {
     private final Transactions transactions = new Transactions();
     private final Webhooks webhooks = new Webhooks();
     private final WebhookLogs webhookLogs = new WebhookLogs();
+    private final Sandbox sandbox = new Sandbox();
+    private final EmailConfigs emailConfigs = new EmailConfigs();
+    private final EmailLogs emailLogs = new EmailLogs();
+    private final EmailSuppressions emailSuppressions = new EmailSuppressions();
 
     private MonaPay(Builder builder) {
-        if (builder.username == null || builder.username.trim().isEmpty() || builder.password == null || builder.password.trim().isEmpty()) {
-            throw new IllegalArgumentException("username và password là bắt buộc");
+        boolean hasClientCredentials = builder.clientId != null && !builder.clientId.trim().isEmpty() && builder.clientSecret != null && !builder.clientSecret.trim().isEmpty();
+        boolean hasPasswordCredentials = builder.username != null && !builder.username.trim().isEmpty() && builder.password != null && !builder.password.isEmpty();
+        if (!hasClientCredentials && !hasPasswordCredentials) {
+            throw new IllegalArgumentException("Cần client ID + client secret hoặc username + password; không dùng password cho AI agent vì sẽ gãy khi bật 2FA");
         }
+        clientId = builder.clientId;
         username = builder.username;
         password = builder.password;
         clientSecret = builder.clientSecret;
@@ -103,6 +126,10 @@ public final class MonaPay {
     public Transactions transactions() { return transactions; }
     public Webhooks webhooks() { return webhooks; }
     public WebhookLogs webhookLogs() { return webhookLogs; }
+    public Sandbox sandbox() { return sandbox; }
+    public EmailConfigs emailConfigs() { return emailConfigs; }
+    public EmailLogs emailLogs() { return emailLogs; }
+    public EmailSuppressions emailSuppressions() { return emailSuppressions; }
     public void setClientSecret(String value) { clientSecret = value; }
     public Object me() { return request("GET", "/api/v1/client/me", null, null); }
 
@@ -250,6 +277,50 @@ public final class MonaPay {
         public Object stats(WebhookLogOptions options) { return request("GET", "/api/v1/webhook-logs/stats", null, logQuery(options)); }
     }
 
+    public final class Sandbox {
+        public Object createTransaction(Map<String, Object> body) { return request("POST", "/api/v1/sandbox/transactions", body, null); }
+    }
+
+    public final class EmailConfigs {
+        public Object list() { return request("GET", "/api/v1/email-configs", null, null); }
+        public Object create(Map<String, Object> body) { return request("POST", "/api/v1/email-configs", body, null); }
+        public Object get(String configId) { return request("GET", "/api/v1/email-configs/" + segment(configId), null, null); }
+        public Object update(String configId, Map<String, Object> body) { return request("PUT", "/api/v1/email-configs/" + segment(configId), body, null); }
+        public Object remove(String configId) { return request("DELETE", "/api/v1/email-configs/" + segment(configId), null, null); }
+        public Object verify(String configId, String email, String code) { return request("POST", "/api/v1/email-configs/" + segment(configId) + "/verify", map("email", email, "code", code), null); }
+        public Object resendVerification(String configId, String email) { return request("POST", "/api/v1/email-configs/" + segment(configId) + "/resend-verification", map("email", email), null); }
+        public Object test(String configId) { return request("POST", "/api/v1/email-configs/" + segment(configId) + "/test", map(), null); }
+    }
+
+    public static final class EmailLogOptions {
+        private String configId;
+        private String status;
+        private String eventType;
+        private String fromDate;
+        private String toDate;
+        private Integer page;
+        private Integer limit;
+        public EmailLogOptions configId(String value) { configId = value; return this; }
+        public EmailLogOptions status(String value) { status = value; return this; }
+        public EmailLogOptions eventType(String value) { eventType = value; return this; }
+        public EmailLogOptions fromDate(String value) { fromDate = value; return this; }
+        public EmailLogOptions toDate(String value) { toDate = value; return this; }
+        public EmailLogOptions page(int value) { page = value; return this; }
+        public EmailLogOptions limit(int value) { limit = value; return this; }
+    }
+
+    public final class EmailLogs {
+        public Object list() { return list(new EmailLogOptions()); }
+        public Object list(EmailLogOptions options) { return request("GET", "/api/v1/email-logs", null, emailLogQuery(options, true)); }
+        public Object stats() { return stats(new EmailLogOptions()); }
+        public Object stats(EmailLogOptions options) { return request("GET", "/api/v1/email-logs/stats", null, emailLogQuery(options, false)); }
+    }
+
+    public final class EmailSuppressions {
+        public Object list() { return request("GET", "/api/v1/email-suppressions", null, null); }
+        public Object remove(String email) { return request("DELETE", "/api/v1/email-suppressions/" + segment(email), null, null); }
+    }
+
     private Object request(String method, String path, Object body, Map<String, Object> query) {
         login();
         String usedToken = accessToken;
@@ -258,7 +329,7 @@ public final class MonaPay {
         } catch (MonaPayException error) {
             if (error.getStatus() != 401) throw error;
             synchronized (authLock) {
-                if (Objects.equals(accessToken, usedToken)) accessToken = null;
+                if (Objects.equals(accessToken, usedToken)) { accessToken = null; tokenExpiresAtMillis = 0; }
             }
             login();
             return send(method, path, body, query, accessToken, clientSecret);
@@ -267,12 +338,19 @@ public final class MonaPay {
 
     private void login() {
         synchronized (authLock) {
-            if (accessToken != null && !accessToken.isEmpty()) return;
-            Object data = send("POST", "/api/v1/client/login", map("username", username, "password", password), null, null, null);
+            if (accessToken != null && !accessToken.isEmpty() && System.currentTimeMillis() < tokenExpiresAtMillis) return;
+            boolean usingClientCredentials = clientId != null && !clientId.isEmpty() && clientSecret != null && !clientSecret.isEmpty();
+            Object body = usingClientCredentials
+                ? map("grant_type", "client_credentials", "client_id", clientId, "client_secret", clientSecret)
+                : map("username", username, "password", password);
+            Object data = send("POST", usingClientCredentials ? "/api/v1/oauth/token" : "/api/v1/client/login", body, null, null, null);
             if (!(data instanceof Map<?, ?>) || !(((Map<?, ?>) data).get("access_token") instanceof String)) {
                 throw new MonaPayException("Response đăng nhập không có access_token");
             }
             accessToken = (String) ((Map<?, ?>) data).get("access_token");
+            Object rawExpires = ((Map<?, ?>) data).get("expires_in");
+            long expiresIn = rawExpires instanceof Number ? ((Number) rawExpires).longValue() : (usingClientCredentials ? 3600 : 86400);
+            tokenExpiresAtMillis = System.currentTimeMillis() + Math.max(0, expiresIn - 60) * 1000;
         }
     }
 
@@ -347,6 +425,17 @@ public final class MonaPay {
     private static Map<String, Object> logQuery(WebhookLogOptions options) {
         WebhookLogOptions actual = options == null ? new WebhookLogOptions() : options;
         return map("status", actual.status, "from_date", actual.fromDate, "to_date", actual.toDate, "page", actual.page, "limit", actual.limit);
+    }
+
+    private static Map<String, Object> emailLogQuery(EmailLogOptions options, boolean includeFilters) {
+        EmailLogOptions actual = options == null ? new EmailLogOptions() : options;
+        return map(
+            "config_id", includeFilters ? actual.configId : null,
+            "status", includeFilters ? actual.status : null,
+            "event_type", includeFilters ? actual.eventType : null,
+            "from_date", actual.fromDate, "to_date", actual.toDate,
+            "page", includeFilters ? actual.page : null, "limit", includeFilters ? actual.limit : null
+        );
     }
 
     public static Map<String, Object> object(Object... keyValues) { return map(keyValues); }

@@ -5,7 +5,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.themona</groupId>
   <artifactId>monapay</artifactId>
-  <version>0.1.0</version>
+  <version>0.3.0</version>
   <name>MONA Pay Java SDK</name>
   <description>Zero-dependency Java SDK for MONA Pay</description>
   <url>https://monapay.vn</url>
