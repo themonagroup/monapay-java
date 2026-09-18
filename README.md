@@ -1,6 +1,6 @@
 # MONA Pay SDK for Java
 
-SDK Java 11+ zero-dependency cho MONA Pay, cổng thanh toán và API ngân hàng của The MONA Group. SDK dùng `java.net.http.HttpClient`, tự login/cache token và login lại đúng một lần khi HTTP 401.
+SDK Java 11+ zero-dependency cho MONA Pay, API ngân hàng và dịch vụ xác nhận thanh toán tự động của The MONA Group. SDK dùng `java.net.http.HttpClient`, tự login/cache token và login lại đúng một lần khi HTTP 401.
 
 ## Xác thực cho AI agent
 
